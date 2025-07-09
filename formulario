@@ -1,471 +1,509 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { initializeApp } from 'firebase/app';
-import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from 'firebase/auth';
-import { getFirestore, collection, addDoc, query, onSnapshot, where, getDocs, doc, deleteDoc } from 'firebase/firestore';
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Gestión de Fuentes para Periodistas</title>
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Google Fonts - Inter -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
+    <!-- Custom CSS -->
+    <link rel="stylesheet" href="style.css">
+</head>
+<body class="font-inter antialiased">
+    <div id="root"></div>
 
-// Define Firebase configuration and app ID from global variables
-const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : {};
-const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-journalist-app-id';
-const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
+    <!-- React CDN -->
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <!-- Babel for JSX transformation in browser (for development, use build step for production) -->
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
 
-// Initialize Firebase App
-const app = initializeApp(firebaseConfig);
-const db = getFirestore(app);
-const auth = getAuth(app);
+    <!-- Your React App (embedded directly) -->
+    <script type="text/babel">
+        import React, { useState, useEffect, useRef } from 'react';
+        import { initializeApp } from 'https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js';
+        import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from 'https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js';
+        import { getFirestore, collection, addDoc, query, onSnapshot, where, getDocs, doc, deleteDoc } from 'https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js';
 
-// Custom Modal Component to replace alert/confirm
-const CustomModal = ({ message, onClose, onConfirm, showConfirmButton = false }) => {
-    if (!message) return null; // Don't render if no message
-
-    return (
-        <div className="fixed inset-0 bg-gray-600 bg-opacity-50 flex items-center justify-center z-50">
-            <div className="bg-white p-6 rounded-lg shadow-xl max-w-sm w-full mx-4">
-                <p className="text-lg font-semibold text-gray-800 mb-4">{message}</p>
-                <div className="flex justify-end space-x-3">
-                    {showConfirmButton && (
-                        <button
-                            onClick={onConfirm}
-                            className="px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-opacity-50 transition duration-200"
-                        >
-                            Confirmar
-                        </button>
-                    )}
-                    <button
-                        onClick={onClose}
-                        className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-50 transition duration-200"
-                    >
-                        Cerrar
-                    </button>
-                </div>
-            </div>
-        </div>
-    );
-};
-
-// StarRating Component for accessibility
-const StarRating = ({ rating, setRating, editable = true }) => {
-    return (
-        <div className="flex items-center space-x-1">
-            {[1, 2, 3, 4, 5].map((star) => (
-                <svg
-                    key={star}
-                    onClick={() => editable && setRating(star)}
-                    className={`h-6 w-6 cursor-pointer transition-colors duration-200 ${
-                        star <= rating ? 'text-yellow-400' : 'text-gray-300'
-                    }`}
-                    fill="currentColor"
-                    viewBox="0 0 20 20"
-                >
-                    <path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.538 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.783.57-1.838-.197-1.538-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.462a1 1 0 00.95-.69l1.07-3.292z" />
-                </svg>
-            ))}
-        </div>
-    );
-};
-
-const App = () => {
-    const [userId, setUserId] = useState(null);
-    const [sources, setSources] = useState([]);
-    const [loading, setLoading] = useState(true);
-    const [error, setError] = useState(null);
-    const [isAuthReady, setIsAuthReady] = useState(false);
-
-    // Form state
-    const [name, setName] = useState('');
-    const [lastName, setLastName] = useState('');
-    const [position, setPosition] = useState('');
-    const [attentionTime, setAttentionTime] = useState('');
-    const [accessibility, setAccessibility] = useState(0);
-
-    // Search state
-    const [searchName, setSearchName] = useState('');
-    const [searchLastName, setSearchLastName] = useState('');
-    const [searchPosition, setSearchPosition] = useState('');
-    const [searchAttentionTime, setSearchAttentionTime] = useState('');
-    const [searchAccessibility, setSearchAccessibility] = useState(0);
-    const [searchResults, setSearchResults] = useState([]);
-    const [isSearching, setIsSearching] = useState(false);
-
-    // Modal state
-    const [modalMessage, setModalMessage] = useState('');
-    const [showModalConfirm, setShowModalConfirm] = useState(false);
-    const modalActionRef = useRef(null); // To store the action for confirmation modal
-
-    // Initialize Firebase Auth and listen for state changes
-    useEffect(() => {
-        const unsubscribe = onAuthStateChanged(auth, async (user) => {
-            if (user) {
-                setUserId(user.uid);
-            } else {
-                try {
-                    // Sign in with custom token if available, otherwise anonymously
-                    if (initialAuthToken) {
-                        await signInWithCustomToken(auth, initialAuthToken);
-                    } else {
-                        await signInAnonymously(auth);
-                    }
-                    setUserId(auth.currentUser?.uid || crypto.randomUUID()); // Fallback for anonymous
-                } catch (e) {
-                    console.error("Error during authentication:", e);
-                    setError("Error al autenticar. Por favor, intente de nuevo.");
-                }
-            }
-            setIsAuthReady(true);
-        });
-
-        return () => unsubscribe();
-    }, []);
-
-    // Fetch sources when auth is ready and userId is available
-    useEffect(() => {
-        if (!isAuthReady || !userId) return;
-
-        const sourcesCollectionRef = collection(db, `artifacts/${appId}/users/${userId}/sources`);
-        const q = query(sourcesCollectionRef);
-
-        const unsubscribe = onSnapshot(q, (snapshot) => {
-            const fetchedSources = snapshot.docs.map(doc => ({
-                id: doc.id,
-                ...doc.data()
-            }));
-            setSources(fetchedSources);
-            setSearchResults(fetchedSources); // Initially show all sources
-            setLoading(false);
-        }, (err) => {
-            console.error("Error fetching sources:", err);
-            setError("Error al cargar las fuentes. Por favor, recargue la página.");
-            setLoading(false);
-        });
-
-        return () => unsubscribe();
-    }, [isAuthReady, userId]);
-
-    // Handle adding a new source
-    const handleAddSource = async (e) => {
-        e.preventDefault();
-        if (!userId) {
-            setModalMessage("Error: Usuario no autenticado.");
-            return;
-        }
-        if (!name || !lastName || !position || !attentionTime || accessibility === 0) {
-            setModalMessage("Por favor, complete todos los campos y califique la accesibilidad.");
-            return;
-        }
-
-        setLoading(true);
-        try {
-            const sourcesCollectionRef = collection(db, `artifacts/${appId}/users/${userId}/sources`);
-            await addDoc(sourcesCollectionRef, {
-                name,
-                lastName,
-                position,
-                attentionTime,
-                accessibility,
-                createdAt: new Date().toISOString()
-            });
-            // Clear form
-            setName('');
-            setLastName('');
-            setPosition('');
-            setAttentionTime('');
-            setAccessibility(0);
-            setModalMessage("Fuente añadida exitosamente.");
-        } catch (e) {
-            console.error("Error adding document: ", e);
-            setError("Error al añadir la fuente. Por favor, intente de nuevo.");
-        } finally {
-            setLoading(false);
-        }
-    };
-
-    // Handle searching sources
-    const handleSearch = async () => {
-        setIsSearching(true);
-        setLoading(true);
-        try {
-            let filteredSources = sources;
-
-            if (searchName) {
-                filteredSources = filteredSources.filter(source =>
-                    source.name.toLowerCase().includes(searchName.toLowerCase())
-                );
-            }
-            if (searchLastName) {
-                filteredSources = filteredSources.filter(source =>
-                    source.lastName.toLowerCase().includes(searchLastName.toLowerCase())
-                );
-            }
-            if (searchPosition) {
-                filteredSources = filteredSources.filter(source =>
-                    source.position.toLowerCase().includes(searchPosition.toLowerCase())
-                );
-            }
-            if (searchAttentionTime) {
-                filteredSources = filteredSources.filter(source =>
-                    source.attentionTime.toLowerCase().includes(searchAttentionTime.toLowerCase())
-                );
-            }
-            if (searchAccessibility > 0) {
-                filteredSources = filteredSources.filter(source =>
-                    source.accessibility === searchAccessibility
-                );
-            }
-            setSearchResults(filteredSources);
-        } catch (e) {
-            console.error("Error searching documents: ", e);
-            setError("Error al buscar fuentes. Por favor, intente de nuevo.");
-        } finally {
-            setLoading(false);
-            setIsSearching(false);
-        }
-    };
-
-    // Handle clearing search filters
-    const handleClearSearch = () => {
-        setSearchName('');
-        setSearchLastName('');
-        setSearchPosition('');
-        setSearchAttentionTime('');
-        setSearchAccessibility(0);
-        setSearchResults(sources); // Show all sources again
-    };
-
-    // Handle deleting a source
-    const handleDeleteSource = (sourceId) => {
-        setModalMessage("¿Estás seguro de que quieres eliminar esta fuente?");
-        setShowModalConfirm(true);
-        modalActionRef.current = async () => {
-            setLoading(true);
-            try {
-                const docRef = doc(db, `artifacts/${appId}/users/${userId}/sources`, sourceId);
-                await deleteDoc(docRef);
-                setModalMessage("Fuente eliminada exitosamente.");
-            } catch (e) {
-                console.error("Error deleting document: ", e);
-                setError("Error al eliminar la fuente. Por favor, intente de nuevo.");
-            } finally {
-                setLoading(false);
-                setShowModalConfirm(false);
-                modalActionRef.current = null;
-            }
+        // Define Firebase configuration and app ID from global variables
+        // These variables are typically injected by the Canvas environment.
+        // For local deployment, you might need to define them or fetch from a config file.
+        const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : {
+            // Replace with your actual Firebase config if deploying outside Canvas
+            apiKey: "YOUR_API_KEY",
+            authDomain: "YOUR_AUTH_DOMAIN",
+            projectId: "YOUR_PROJECT_ID",
+            storageBucket: "YOUR_STORAGE_BUCKET",
+            messagingSenderId: "YOUR_MESSAGING_SENDER_ID",
+            appId: "YOUR_APP_ID"
         };
-    };
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-journalist-app-id';
+        const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
 
-    const handleModalClose = () => {
-        setModalMessage('');
-        setShowModalConfirm(false);
-        modalActionRef.current = null;
-    };
+        // Initialize Firebase App
+        const app = initializeApp(firebaseConfig);
+        const db = getFirestore(app);
+        const auth = getAuth(app);
 
-    const handleModalConfirm = () => {
-        if (modalActionRef.current) {
-            modalActionRef.current();
-        }
-    };
+        // Custom Modal Component to replace alert/confirm
+        const CustomModal = ({ message, onClose, onConfirm, showConfirmButton = false }) => {
+            if (!message) return null; // Don't render if no message
 
-    if (!isAuthReady) {
-        return (
-            <div className="flex items-center justify-center min-h-screen bg-gray-100">
-                <p className="text-xl text-gray-700">Cargando autenticación...</p>
-            </div>
-        );
-    }
-
-    if (error) {
-        return (
-            <div className="flex items-center justify-center min-h-screen bg-red-100 text-red-700 p-4 rounded-lg">
-                <p className="text-xl">Error: {error}</p>
-            </div>
-        );
-    }
-
-    return (
-        <div className="min-h-screen bg-gray-100 font-inter p-4 sm:p-6 lg:p-8 flex flex-col items-center">
-            <CustomModal
-                message={modalMessage}
-                onClose={handleModalClose}
-                onConfirm={handleModalConfirm}
-                showConfirmButton={showModalConfirm}
-            />
-
-            <div className="w-full max-w-4xl bg-white rounded-xl shadow-lg p-6 mb-8">
-                <h1 className="text-3xl font-bold text-gray-800 mb-6 text-center">
-                    Gestión de Fuentes para Periodistas
-                </h1>
-
-                {userId && (
-                    <p className="text-sm text-gray-600 mb-4 text-center">
-                        ID de Usuario: <span className="font-mono bg-gray-200 px-2 py-1 rounded-md">{userId}</span>
-                    </p>
-                )}
-
-                {/* Add Source Form */}
-                <h2 className="text-2xl font-semibold text-gray-700 mb-4 border-b pb-2">Añadir Nueva Fuente</h2>
-                <form onSubmit={handleAddSource} className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div>
-                        <label htmlFor="name" className="block text-sm font-medium text-gray-700 mb-1">Nombre:</label>
-                        <input
-                            type="text"
-                            id="name"
-                            value={name}
-                            onChange={(e) => setName(e.target.value)}
-                            className="w-full p-2 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500 transition duration-150"
-                            placeholder="Ej: Juan"
-                            required
-                        />
-                    </div>
-                    <div>
-                        <label htmlFor="lastName" className="block text-sm font-medium text-gray-700 mb-1">Apellido:</label>
-                        <input
-                            type="text"
-                            id="lastName"
-                            value={lastName}
-                            onChange={(e) => setLastName(e.target.value)}
-                            className="w-full p-2 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500 transition duration-150"
-                            placeholder="Ej: Pérez"
-                            required
-                        />
-                    </div>
-                    <div>
-                        <label htmlFor="position" className="block text-sm font-medium text-gray-700 mb-1">Cargo:</label>
-                        <input
-                            type="text"
-                            id="position"
-                            value={position}
-                            onChange={(e) => setPosition(e.target.value)}
-                            className="w-full p-2 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500 transition duration-150"
-                            placeholder="Ej: Director de Comunicaciones"
-                            required
-                        />
-                    </div>
-                    <div>
-                        <label htmlFor="attentionTime" className="block text-sm font-medium text-gray-700 mb-1">Hora Estimada de Atención:</label>
-                        <input
-                            type="text"
-                            id="attentionTime"
-                            value={attentionTime}
-                            onChange={(e) => setAttentionTime(e.target.value)}
-                            className="w-full p-2 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500 transition duration-150"
-                            placeholder="Ej: 9:00 AM - 5:00 PM"
-                            required
-                        />
-                    </div>
-                    <div className="col-span-1 md:col-span-2">
-                        <label className="block text-sm font-medium text-gray-700 mb-1">Accesibilidad (1-5 estrellas):</label>
-                        <StarRating rating={accessibility} setRating={setAccessibility} />
-                    </div>
-                    <div className="col-span-1 md:col-span-2 flex justify-center">
-                        <button
-                            type="submit"
-                            className="px-6 py-3 bg-green-600 text-white font-semibold rounded-lg shadow-md hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-opacity-50 transition duration-200 disabled:opacity-50"
-                            disabled={loading}
-                        >
-                            {loading ? 'Añadiendo...' : 'Añadir Fuente'}
-                        </button>
-                    </div>
-                </form>
-            </div>
-
-            <div className="w-full max-w-4xl bg-white rounded-xl shadow-lg p-6 mb-8">
-                <h2 className="text-2xl font-semibold text-gray-700 mb-4 border-b pb-2">Consultar Fuentes</h2>
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mb-6">
-                    <div>
-                        <label htmlFor="searchName" className="block text-sm font-medium text-gray-700 mb-1">Buscar por Nombre:</label>
-                        <input
-                            type="text"
-                            id="searchName"
-                            value={searchName}
-                            onChange={(e) => setSearchName(e.target.value)}
-                            className="w-full p-2 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500 transition duration-150"
-                            placeholder="Nombre"
-                        />
-                    </div>
-                    <div>
-                        <label htmlFor="searchLastName" className="block text-sm font-medium text-gray-700 mb-1">Buscar por Apellido:</label>
-                        <input
-                            type="text"
-                            id="searchLastName"
-                            value={searchLastName}
-                            onChange={(e) => setSearchLastName(e.target.value)}
-                            className="w-full p-2 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500 transition duration-150"
-                            placeholder="Apellido"
-                        />
-                    </div>
-                    <div>
-                        <label htmlFor="searchPosition" className="block text-sm font-medium text-gray-700 mb-1">Buscar por Cargo:</label>
-                        <input
-                            type="text"
-                            id="searchPosition"
-                            value={searchPosition}
-                            onChange={(e) => setSearchPosition(e.target.value)}
-                            className="w-full p-2 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500 transition duration-150"
-                            placeholder="Cargo"
-                        />
-                    </div>
-                    <div>
-                        <label htmlFor="searchAttentionTime" className="block text-sm font-medium text-gray-700 mb-1">Buscar por Hora de Atención:</label>
-                        <input
-                            type="text"
-                            id="searchAttentionTime"
-                            value={searchAttentionTime}
-                            onChange={(e) => setSearchAttentionTime(e.target.value)}
-                            className="w-full p-2 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500 transition duration-150"
-                            placeholder="Hora de Atención"
-                        />
-                    </div>
-                    <div className="col-span-1 md:col-span-2 lg:col-span-1">
-                        <label className="block text-sm font-medium text-gray-700 mb-1">Buscar por Accesibilidad:</label>
-                        <StarRating rating={searchAccessibility} setRating={setSearchAccessibility} />
-                    </div>
-                </div>
-                <div className="flex justify-center space-x-4">
-                    <button
-                        onClick={handleSearch}
-                        className="px-6 py-3 bg-blue-600 text-white font-semibold rounded-lg shadow-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-50 transition duration-200 disabled:opacity-50"
-                        disabled={loading || isSearching}
-                    >
-                        {isSearching ? 'Buscando...' : 'Buscar Fuentes'}
-                    </button>
-                    <button
-                        onClick={handleClearSearch}
-                        className="px-6 py-3 bg-gray-500 text-white font-semibold rounded-lg shadow-md hover:bg-gray-600 focus:outline-none focus:ring-2 focus:ring-gray-400 focus:ring-opacity-50 transition duration-200"
-                    >
-                        Limpiar Búsqueda
-                    </button>
-                </div>
-            </div>
-
-            <div className="w-full max-w-4xl bg-white rounded-xl shadow-lg p-6">
-                <h2 className="text-2xl font-semibold text-gray-700 mb-4 border-b pb-2">Listado de Fuentes</h2>
-                {loading && <p className="text-center text-gray-600">Cargando fuentes...</p>}
-                {!loading && searchResults.length === 0 && (
-                    <p className="text-center text-gray-600">No se encontraron fuentes. ¡Añade una nueva!</p>
-                )}
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    {searchResults.map((source) => (
-                        <div key={source.id} className="bg-gray-50 p-4 rounded-lg shadow-sm border border-gray-200 relative">
-                            <h3 className="text-lg font-bold text-gray-800">{source.name} {source.lastName}</h3>
-                            <p className="text-gray-600 text-sm mb-1"><strong>Cargo:</strong> {source.position}</p>
-                            <p className="text-gray-600 text-sm mb-1"><strong>Atención:</strong> {source.attentionTime}</p>
-                            <div className="flex items-center text-sm text-gray-600 mb-2">
-                                <strong>Accesibilidad:</strong>
-                                <StarRating rating={source.accessibility} editable={false} />
-                            </div>
+            return (
+                <div className="fixed inset-0 bg-gray-600 bg-opacity-50 flex items-center justify-center z-50">
+                    <div className="bg-white p-6 rounded-lg shadow-xl max-w-sm w-full mx-4">
+                        <p className="text-lg font-semibold text-gray-800 mb-4">{message}</p>
+                        <div className="flex justify-end space-x-3">
+                            {showConfirmButton && (
+                                <button
+                                    onClick={onConfirm}
+                                    className="px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-opacity-50 transition duration-200"
+                                >
+                                    Confirmar
+                                </button>
+                            )}
                             <button
-                                onClick={() => handleDeleteSource(source.id)}
-                                className="absolute top-2 right-2 p-1 bg-red-500 text-white rounded-full hover:bg-red-600 focus:outline-none focus:ring-2 focus:ring-red-400 focus:ring-opacity-50 transition duration-200"
-                                aria-label="Eliminar fuente"
+                                onClick={onClose}
+                                className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-50 transition duration-200"
                             >
-                                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
-                                    <path fillRule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm6 0a1 1 0 012 0v6a1 1 0 11-2 0V8z" clipRule="evenodd" />
-                                </svg>
+                                Cerrar
                             </button>
                         </div>
+                    </div>
+                </div>
+            );
+        };
+
+        // StarRating Component for accessibility
+        const StarRating = ({ rating, setRating, editable = true }) => {
+            return (
+                <div className="flex items-center space-x-1">
+                    {[1, 2, 3, 4, 5].map((star) => (
+                        <svg
+                            key={star}
+                            onClick={() => editable && setRating(star)}
+                            className={`h-6 w-6 cursor-pointer transition-colors duration-200 ${
+                                star <= rating ? 'text-yellow-400' : 'text-gray-300'
+                            }`}
+                            fill="currentColor"
+                            viewBox="0 0 20 20"
+                        >
+                            <path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.538 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.783.57-1.838-.197-1.538-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.462a1 1 0 00.95-.69l1.07-3.292z" />
+                        </svg>
                     ))}
                 </div>
-            </div>
-        </div>
-    );
-};
+            );
+        };
 
-export default App;
+        const App = () => {
+            const [userId, setUserId] = useState(null);
+            const [sources, setSources] = useState([]);
+            const [loading, setLoading] = useState(true);
+            const [error, setError] = useState(null);
+            const [isAuthReady, setIsAuthReady] = useState(false);
+
+            // Form state
+            const [name, setName] = useState('');
+            const [lastName, setLastName] = useState('');
+            const [position, setPosition] = useState('');
+            const [attentionTime, setAttentionTime] = useState('');
+            const [accessibility, setAccessibility] = useState(0);
+
+            // Search state
+            const [searchName, setSearchName] = useState('');
+            const [searchLastName, setSearchLastName] = useState('');
+            const [searchPosition, setSearchPosition] = useState('');
+            const [searchAttentionTime, setSearchAttentionTime] = useState('');
+            const [searchAccessibility, setSearchAccessibility] = useState(0);
+            const [searchResults, setSearchResults] = useState([]);
+            const [isSearching, setIsSearching] = useState(false);
+
+            // Modal state
+            const [modalMessage, setModalMessage] = useState('');
+            const [showModalConfirm, setShowModalConfirm] = useState(false);
+            const modalActionRef = useRef(null); // To store the action for confirmation modal
+
+            // Initialize Firebase Auth and listen for state changes
+            useEffect(() => {
+                const unsubscribe = onAuthStateChanged(auth, async (user) => {
+                    if (user) {
+                        setUserId(user.uid);
+                    } else {
+                        try {
+                            // Sign in with custom token if available, otherwise anonymously
+                            if (initialAuthToken) {
+                                await signInWithCustomToken(auth, initialAuthToken);
+                            } else {
+                                await signInAnonymously(auth);
+                            }
+                            setUserId(auth.currentUser?.uid || crypto.randomUUID()); // Fallback for anonymous
+                        } catch (e) {
+                            console.error("Error during authentication:", e);
+                            setError("Error al autenticar. Por favor, intente de nuevo.");
+                        }
+                    }
+                    setIsAuthReady(true);
+                });
+
+                return () => unsubscribe();
+            }, []);
+
+            // Fetch sources when auth is ready and userId is available
+            useEffect(() => {
+                if (!isAuthReady || !userId) return;
+
+                const sourcesCollectionRef = collection(db, `artifacts/${appId}/users/${userId}/sources`);
+                const q = query(sourcesCollectionRef);
+
+                const unsubscribe = onSnapshot(q, (snapshot) => {
+                    const fetchedSources = snapshot.docs.map(doc => ({
+                        id: doc.id,
+                        ...doc.data()
+                    }));
+                    setSources(fetchedSources);
+                    setSearchResults(fetchedSources); // Initially show all sources
+                    setLoading(false);
+                }, (err) => {
+                    console.error("Error fetching sources:", err);
+                    setError("Error al cargar las fuentes. Por favor, recargue la página.");
+                    setLoading(false);
+                });
+
+                return () => unsubscribe();
+            }, [isAuthReady, userId]);
+
+            // Handle adding a new source
+            const handleAddSource = async (e) => {
+                e.preventDefault();
+                if (!userId) {
+                    setModalMessage("Error: Usuario no autenticado.");
+                    return;
+                }
+                if (!name || !lastName || !position || !attentionTime || accessibility === 0) {
+                    setModalMessage("Por favor, complete todos los campos y califique la accesibilidad.");
+                    return;
+                }
+
+                setLoading(true);
+                try {
+                    const sourcesCollectionRef = collection(db, `artifacts/${appId}/users/${userId}/sources`);
+                    await addDoc(sourcesCollectionRef, {
+                        name,
+                        lastName,
+                        position,
+                        attentionTime,
+                        accessibility,
+                        createdAt: new Date().toISOString()
+                    });
+                    // Clear form
+                    setName('');
+                    setLastName('');
+                    setPosition('');
+                    setAttentionTime('');
+                    setAccessibility(0);
+                    setModalMessage("Fuente añadida exitosamente.");
+                } catch (e) {
+                    console.error("Error adding document: ", e);
+                    setError("Error al añadir la fuente. Por favor, intente de nuevo.");
+                } finally {
+                    setLoading(false);
+                }
+            };
+
+            // Handle searching sources
+            const handleSearch = async () => {
+                setIsSearching(true);
+                setLoading(true);
+                try {
+                    let filteredSources = sources;
+
+                    if (searchName) {
+                        filteredSources = filteredSources.filter(source =>
+                            source.name.toLowerCase().includes(searchName.toLowerCase())
+                        );
+                    }
+                    if (searchLastName) {
+                        filteredSources = filteredSources.filter(source =>
+                            source.lastName.toLowerCase().includes(searchLastName.toLowerCase())
+                        );
+                    }
+                    if (searchPosition) {
+                        filteredSources = filteredSources.filter(source =>
+                            source.position.toLowerCase().includes(searchPosition.toLowerCase())
+                        );
+                    }
+                    if (searchAttentionTime) {
+                        filteredSources = filteredSources.filter(source =>
+                            source.attentionTime.toLowerCase().includes(searchAttentionTime.toLowerCase())
+                        );
+                    }
+                    if (searchAccessibility > 0) {
+                        filteredSources = filteredSources.filter(source =>
+                            source.accessibility === searchAccessibility
+                        );
+                    }
+                    setSearchResults(filteredSources);
+                } catch (e) {
+                    console.error("Error searching documents: ", e);
+                    setError("Error al buscar fuentes. Por favor, intente de nuevo.");
+                } finally {
+                    setLoading(false);
+                    setIsSearching(false);
+                }
+            };
+
+            // Handle clearing search filters
+            const handleClearSearch = () => {
+                setSearchName('');
+                setSearchLastName('');
+                setSearchPosition('');
+                setSearchAttentionTime('');
+                setSearchAccessibility(0);
+                setSearchResults(sources); // Show all sources again
+            };
+
+            // Handle deleting a source
+            const handleDeleteSource = (sourceId) => {
+                setModalMessage("¿Estás seguro de que quieres eliminar esta fuente?");
+                setShowModalConfirm(true);
+                modalActionRef.current = async () => {
+                    setLoading(true);
+                    try {
+                        const docRef = doc(db, `artifacts/${appId}/users/${userId}/sources`, sourceId);
+                        await deleteDoc(docRef);
+                        setModalMessage("Fuente eliminada exitosamente.");
+                    } catch (e) {
+                        console.error("Error deleting document: ", e);
+                        setError("Error al eliminar la fuente. Por favor, intente de nuevo.");
+                    } finally {
+                        setLoading(false);
+                        setShowModalConfirm(false);
+                        modalActionRef.current = null;
+                    }
+                };
+            };
+
+            const handleModalClose = () => {
+                setModalMessage('');
+                setShowModalConfirm(false);
+                modalActionRef.current = null;
+            };
+
+            const handleModalConfirm = () => {
+                if (modalActionRef.current) {
+                    modalActionRef.current();
+                }
+            };
+
+            if (!isAuthReady) {
+                return (
+                    <div className="flex items-center justify-center min-h-screen bg-gray-100">
+                        <p className="text-xl text-gray-700">Cargando autenticación...</p>
+                    </div>
+                );
+            }
+
+            if (error) {
+                return (
+                    <div className="flex items-center justify-center min-h-screen bg-red-100 text-red-700 p-4 rounded-lg">
+                        <p className="text-xl">Error: {error}</p>
+                    </div>
+                );
+            }
+
+            return (
+                <div className="min-h-screen bg-gray-100 font-inter p-4 sm:p-6 lg:p-8 flex flex-col items-center">
+                    <CustomModal
+                        message={modalMessage}
+                        onClose={handleModalClose}
+                        onConfirm={handleModalConfirm}
+                        showConfirmButton={showModalConfirm}
+                    />
+
+                    <div className="w-full max-w-4xl bg-white rounded-xl shadow-lg p-6 mb-8">
+                        <h1 className="text-3xl font-bold text-gray-800 mb-6 text-center">
+                            Gestión de Fuentes para Periodistas
+                        </h1>
+
+                        {userId && (
+                            <p className="text-sm text-gray-600 mb-4 text-center">
+                                ID de Usuario: <span className="font-mono bg-gray-200 px-2 py-1 rounded-md">{userId}</span>
+                            </p>
+                        )}
+
+                        {/* Add Source Form */}
+                        <h2 className="text-2xl font-semibold text-gray-700 mb-4 border-b pb-2">Añadir Nueva Fuente</h2>
+                        <form onSubmit={handleAddSource} className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <div>
+                                <label htmlFor="name" className="block text-sm font-medium text-gray-700 mb-1">Nombre:</label>
+                                <input
+                                    type="text"
+                                    id="name"
+                                    value={name}
+                                    onChange={(e) => setName(e.target.value)}
+                                    className="w-full p-2 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500 transition duration-150"
+                                    placeholder="Ej: Juan"
+                                    required
+                                />
+                            </div>
+                            <div>
+                                <label htmlFor="lastName" className="block text-sm font-medium text-gray-700 mb-1">Apellido:</label>
+                                <input
+                                    type="text"
+                                    id="lastName"
+                                    value={lastName}
+                                    onChange={(e) => setLastName(e.target.value)}
+                                    className="w-full p-2 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500 transition duration-150"
+                                    placeholder="Ej: Pérez"
+                                    required
+                                />
+                            </div>
+                            <div>
+                                <label htmlFor="position" className="block text-sm font-medium text-gray-700 mb-1">Cargo:</label>
+                                <input
+                                    type="text"
+                                    id="position"
+                                    value={position}
+                                    onChange={(e) => setPosition(e.target.value)}
+                                    className="w-full p-2 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500 transition duration-150"
+                                    placeholder="Ej: Director de Comunicaciones"
+                                    required
+                                />
+                            </div>
+                            <div>
+                                <label htmlFor="attentionTime" className="block text-sm font-medium text-gray-700 mb-1">Hora Estimada de Atención:</label>
+                                <input
+                                    type="text"
+                                    id="attentionTime"
+                                    value={attentionTime}
+                                    onChange={(e) => setAttentionTime(e.target.value)}
+                                    className="w-full p-2 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500 transition duration-150"
+                                    placeholder="Ej: 9:00 AM - 5:00 PM"
+                                    required
+                                />
+                            </div>
+                            <div className="col-span-1 md:col-span-2">
+                                <label className="block text-sm font-medium text-gray-700 mb-1">Accesibilidad (1-5 estrellas):</label>
+                                <StarRating rating={accessibility} setRating={setAccessibility} />
+                            </div>
+                            <div className="col-span-1 md:col-span-2 flex justify-center">
+                                <button
+                                    type="submit"
+                                    className="px-6 py-3 bg-green-600 text-white font-semibold rounded-lg shadow-md hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-opacity-50 transition duration-200 disabled:opacity-50"
+                                    disabled={loading}
+                                >
+                                    {loading ? 'Añadiendo...' : 'Añadir Fuente'}
+                                </button>
+                            </div>
+                        </form>
+                    </div>
+
+                    <div className="w-full max-w-4xl bg-white rounded-xl shadow-lg p-6 mb-8">
+                        <h2 className="text-2xl font-semibold text-gray-700 mb-4 border-b pb-2">Consultar Fuentes</h2>
+                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mb-6">
+                            <div>
+                                <label htmlFor="searchName" className="block text-sm font-medium text-gray-700 mb-1">Buscar por Nombre:</label>
+                                <input
+                                    type="text"
+                                    id="searchName"
+                                    value={searchName}
+                                    onChange={(e) => setSearchName(e.target.value)}
+                                    className="w-full p-2 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500 transition duration-150"
+                                    placeholder="Nombre"
+                                />
+                            </div>
+                            <div>
+                                <label htmlFor="searchLastName" className="block text-sm font-medium text-gray-700 mb-1">Buscar por Apellido:</label>
+                                <input
+                                    type="text"
+                                    id="searchLastName"
+                                    value={searchLastName}
+                                    onChange={(e) => setSearchLastName(e.target.value)}
+                                    className="w-full p-2 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500 transition duration-150"
+                                    placeholder="Apellido"
+                                />
+                            </div>
+                            <div>
+                                <label htmlFor="searchPosition" className="block text-sm font-medium text-gray-700 mb-1">Buscar por Cargo:</label>
+                                <input
+                                    type="text"
+                                    id="searchPosition"
+                                    value={searchPosition}
+                                    onChange={(e) => setSearchPosition(e.target.value)}
+                                    className="w-full p-2 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500 transition duration-150"
+                                    placeholder="Cargo"
+                                />
+                            </div>
+                            <div>
+                                <label htmlFor="searchAttentionTime" className="block text-sm font-medium text-gray-700 mb-1">Buscar por Hora de Atención:</label>
+                                <input
+                                    type="text"
+                                    id="searchAttentionTime"
+                                    value={searchAttentionTime}
+                                    onChange={(e) => setSearchAttentionTime(e.target.value)}
+                                    className="w-full p-2 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500 transition duration-150"
+                                    placeholder="Hora de Atención"
+                                />
+                            </div>
+                            <div className="col-span-1 md:col-span-2 lg:col-span-1">
+                                <label className="block text-sm font-medium text-gray-700 mb-1">Buscar por Accesibilidad:</label>
+                                <StarRating rating={searchAccessibility} setRating={setSearchAccessibility} />
+                            </div>
+                        </div>
+                        <div className="flex justify-center space-x-4">
+                            <button
+                                onClick={handleSearch}
+                                className="px-6 py-3 bg-blue-600 text-white font-semibold rounded-lg shadow-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-50 transition duration-200 disabled:opacity-50"
+                                disabled={loading || isSearching}
+                            >
+                                {isSearching ? 'Buscando...' : 'Buscar Fuentes'}
+                            </button>
+                            <button
+                                onClick={handleClearSearch}
+                                className="px-6 py-3 bg-gray-500 text-white font-semibold rounded-lg shadow-md hover:bg-gray-600 focus:outline-none focus:ring-2 focus:ring-gray-400 focus:ring-opacity-50 transition duration-200"
+                            >
+                                Limpiar Búsqueda
+                            </button>
+                        </div>
+                    </div>
+
+                    <div className="w-full max-w-4xl bg-white rounded-xl shadow-lg p-6">
+                        <h2 className="text-2xl font-semibold text-gray-700 mb-4 border-b pb-2">Listado de Fuentes</h2>
+                        {loading && <p className="text-center text-gray-600">Cargando fuentes...</p>}
+                        {!loading && searchResults.length === 0 && (
+                            <p className="text-center text-gray-600">No se encontraron fuentes. ¡Añade una nueva!</p>
+                        )}
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            {searchResults.map((source) => (
+                                <div key={source.id} className="bg-gray-50 p-4 rounded-lg shadow-sm border border-gray-200 relative">
+                                    <h3 className="text-lg font-bold text-gray-800">{source.name} {source.lastName}</h3>
+                                    <p className="text-gray-600 text-sm mb-1"><strong>Cargo:</strong> {source.position}</p>
+                                    <p className="text-gray-600 text-sm mb-1"><strong>Atención:</strong> {source.attentionTime}</p>
+                                    <div className="flex items-center text-sm text-gray-600 mb-2">
+                                        <strong>Accesibilidad:</strong>
+                                        <StarRating rating={source.accessibility} editable={false} />
+                                    </div>
+                                    <button
+                                        onClick={() => handleDeleteSource(source.id)}
+                                        className="absolute top-2 right-2 p-1 bg-red-500 text-white rounded-full hover:bg-red-600 focus:outline-none focus:ring-2 focus:ring-red-400 focus:ring-opacity-50 transition duration-200"
+                                        aria-label="Eliminar fuente"
+                                    >
+                                        <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                                            <path fillRule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm6 0a1 1 0 012 0v6a1 1 0 11-2 0V8z" clipRule="evenodd" />
+                                        </svg>
+                                    </button>
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+                </div>
+            );
+        };
+
+        // Render the App component into the 'root' div
+        ReactDOM.render(<App />, document.getElementById('root'));
+    </script>
+</body>
+</html>
